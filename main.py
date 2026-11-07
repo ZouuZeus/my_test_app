@@ -4,8 +4,10 @@ The calculation itself lives in codegen.py (your original script, renamed
 from main.py). This file only adds the phone screen around it and does not
 change any of the maths.
 """
+import random
 import traceback
 
+from kivy.animation import Animation
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
@@ -14,6 +16,7 @@ from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
@@ -50,6 +53,19 @@ ERROR = hex_color("#ff6b6b")
 DISABLED_FILL = hex_color("#2a2f40")
 TRANSPARENT = (0, 0, 0, 0)
 
+# Background animation: faint glow + bright core of each electric thread.
+THREAD_GLOW = ACCENT
+THREAD_CORE = hex_color("#cfc6ff")
+THREAD_COUNT = 4
+THREAD_GLOW_ALPHA = 0.18
+THREAD_CORE_ALPHA = 0.6
+THREAD_GLOW_WIDTH = 5     # in dp
+THREAD_CORE_WIDTH = 1.4   # in dp
+
+# Shown at the bottom of the screen; tapping it opens the profile.
+INSTAGRAM_HANDLE = "@zeus__hz"
+INSTAGRAM_URL = "https://www.instagram.com/" + INSTAGRAM_HANDLE.lstrip("@") + "/"
+
 Window.clearcolor = BG
 # Keep the focused text box visible when the on-screen keyboard opens.
 Window.softinput_mode = "below_target"
@@ -81,19 +97,40 @@ def make_code(device_text, usage_text):
     return "".join(str(code).split()), None
 
 
+def open_url(url):
+    """Open a link on the phone (Instagram app or browser). True if it worked."""
+    try:
+        from jnius import autoclass
+
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        intent_class = autoclass("android.content.Intent")
+        uri = autoclass("android.net.Uri").parse(url)
+        activity.startActivity(intent_class(intent_class.ACTION_VIEW, uri))
+        return True
+    except Exception:
+        pass
+    try:
+        import webbrowser
+
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
+
+
 # ---- Small building blocks ----------------------------------------------
 def spacer(height):
     return Widget(size_hint_y=None, height=dp(height))
 
 
-def text_label(text="", size=16, color=TEXT, bold=False, min_height=0):
-    """Left-aligned label that wraps to its width and grows to fit its text."""
+def text_label(text="", size=16, color=TEXT, bold=False, min_height=0,
+               halign="left"):
+    """Label that wraps to its width and grows to fit its text."""
     label = Label(
         text=text,
         font_size=sp(size),
         color=color,
         bold=bold,
-        halign="left",
+        halign=halign,
         valign="middle",
         size_hint_y=None,
     )
@@ -222,6 +259,143 @@ class RoundedButton(Button):
             self._fill_color.rgba = self._normal
 
 
+# ---- Background animation: fading electric threads ----------------------
+class ThreadModel:
+    """One crackling thread: its shape, and how bright it is right now.
+
+    Plain Python (no Kivy), so it can be tested without a phone.
+    Coordinates are in dp, with (0, 0) at the bottom-left of the widget.
+    """
+
+    def __init__(self, rng, width, height, delay=0.0):
+        self.rng = rng
+        self.width = float(width)
+        self.height = float(height)
+        self.life = 1.0
+        self.age = 0.0
+        self.paths = []
+        self._spawn()
+        self.age = -delay
+
+    def _spawn(self):
+        rng, w, h = self.rng, self.width, self.height
+        self.life = rng.uniform(1.5, 2.8)
+        self.age = -rng.uniform(0.0, 0.9)  # short pause before the next flash
+
+        steps = rng.randint(14, 22)
+        x = rng.uniform(0.1, 0.9) * w
+        y = h * rng.uniform(0.75, 1.0)
+        step_y = h * rng.uniform(0.45, 0.8) / steps
+        main = [x, y]
+        for _ in range(steps):
+            x = min(max(x + rng.uniform(-1.0, 1.0) * w * 0.07, 0.0), w)
+            y = max(y - step_y * rng.uniform(0.6, 1.4), 0.0)
+            main += [x, y]
+        self.paths = [main]
+
+        if rng.random() < 0.6:  # a smaller branch splitting off the main thread
+            i = rng.randrange(3, steps - 3)
+            bx, by = main[2 * i], main[2 * i + 1]
+            side = rng.choice((-1.0, 1.0))
+            branch = [bx, by]
+            for _ in range(rng.randint(5, 9)):
+                bx = min(max(bx + side * rng.uniform(0.2, 1.0) * w * 0.05, 0.0), w)
+                by = max(by - step_y * rng.uniform(0.5, 1.2), 0.0)
+                branch += [bx, by]
+            self.paths.append(branch)
+
+    @property
+    def brightness(self):
+        """0 to 1: a quick flash in, then a slow fade out."""
+        p = self.age / self.life
+        if p <= 0.0 or p >= 1.0:
+            return 0.0
+        if p < 0.12:
+            return p / 0.12
+        return ((1.0 - p) / 0.88) ** 1.6
+
+    def advance(self, dt):
+        self.age += dt
+        if self.age >= self.life:
+            self._spawn()
+
+    def shimmer(self):
+        """The current shape, nudged a little so the thread seems to crackle."""
+        amount = max(self.width, 1.0) * 0.006
+        uniform = self.rng.uniform
+        return [[v + uniform(-amount, amount) for v in path] for path in self.paths]
+
+
+class ThreadSlot:
+    """The drawing instructions (glow line + bright core line) for one path."""
+
+    def __init__(self, canvas):
+        with canvas:
+            self.glow_color = Color(*THREAD_GLOW[:3], 0)
+            self.glow = Line(points=[], width=dp(THREAD_GLOW_WIDTH), cap="none")
+            self.core_color = Color(*THREAD_CORE[:3], 0)
+            self.core = Line(points=[], width=dp(THREAD_CORE_WIDTH), cap="none")
+
+    def show(self, points, level):
+        self.glow_color.rgba = (*THREAD_GLOW[:3], level * THREAD_GLOW_ALPHA)
+        self.core_color.rgba = (*THREAD_CORE[:3], level * THREAD_CORE_ALPHA)
+        self.glow.points = points
+        self.core.points = points
+
+    def hide(self):
+        self.glow_color.rgba = (*THREAD_GLOW[:3], 0)
+        self.core_color.rgba = (*THREAD_CORE[:3], 0)
+        self.glow.points = []
+        self.core.points = []
+
+
+class ElectricThreads(Widget):
+    """Fading electric threads, drawn behind the rest of the screen."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._rng = random.Random()
+        self._items = []  # (ThreadModel, [ThreadSlot, ThreadSlot])
+        self.bind(size=self._rebuild)
+        self._timer = Clock.schedule_interval(self._tick, 1.0 / 30.0)
+
+    def _rebuild(self, *_):
+        self.canvas.clear()
+        self._items = []
+        if self.width < 2 or self.height < 2:
+            return
+        for i in range(THREAD_COUNT):
+            model = ThreadModel(self._rng, self.width, self.height, delay=i * 0.55)
+            slots = [ThreadSlot(self.canvas), ThreadSlot(self.canvas)]
+            self._items.append((model, slots))
+
+    def _tick(self, dt):
+        # This is only decoration: if anything goes wrong, stop it quietly
+        # rather than taking the whole app down.
+        try:
+            dt = min(dt, 0.1)
+            ox, oy = self.x, self.y
+            for model, slots in self._items:
+                model.advance(dt)
+                level = model.brightness
+                if level <= 0.0:
+                    for slot in slots:
+                        slot.hide()
+                    continue
+                level *= 0.8 + 0.2 * self._rng.random()  # slight flicker
+                paths = model.shimmer()
+                for index, slot in enumerate(slots):
+                    if index < len(paths):
+                        points = [v + (ox if n % 2 == 0 else oy)
+                                  for n, v in enumerate(paths[index])]
+                        slot.show(points, level)
+                    else:
+                        slot.hide()
+        except Exception:
+            self._timer.cancel()
+            self.canvas.clear()
+
+
 # ---- The screen ------------------------------------------------------------
 class CalculatorScreen(BoxLayout):
     def __init__(self, **kwargs):
@@ -305,13 +479,34 @@ class CalculatorScreen(BoxLayout):
         # Soaks up leftover space so everything stays at the top.
         self.add_widget(Widget())
 
+        # Footer: tappable Instagram handle
+        self.footer_button = Button(
+            text=INSTAGRAM_HANDLE,
+            font_size=sp(15),
+            color=ACCENT_SOFT,
+            background_normal="",
+            background_down="",
+            background_color=TRANSPARENT,
+            size_hint_y=None,
+            height=dp(44),
+        )
+        self.footer_button.bind(on_release=self.open_instagram)
+        self.add_widget(self.footer_button)
+
         if IMPORT_ERROR:
             self.show_error("Could not load codegen.py - " + IMPORT_ERROR)
             self.calc_button.disabled = True
 
     def hide_card(self):
+        Animation.cancel_all(self.card)
         self.card.opacity = 0
         self.card.disabled = True
+
+    def show_card(self):
+        Animation.cancel_all(self.card)
+        self.card.opacity = 0
+        self.card.disabled = False
+        Animation(opacity=1, duration=0.4, t="out_quad").start(self.card)
 
     def show_error(self, message):
         self.hide_card()
@@ -329,8 +524,7 @@ class CalculatorScreen(BoxLayout):
         self.status_label.text = ""
         self.code_label.text = code
         self.copy_button.text = "Copy code"
-        self.card.opacity = 1
-        self.card.disabled = False
+        self.show_card()
 
     def copy_code(self, *_):
         if not self.code_label.text:
@@ -342,6 +536,10 @@ class CalculatorScreen(BoxLayout):
 
     def _reset_copy_text(self, *_):
         self.copy_button.text = "Copy code"
+
+    def open_instagram(self, *_):
+        if not open_url(INSTAGRAM_URL):
+            self.status_label.text = "Could not open Instagram."
 
 
 def error_screen(details):
@@ -363,15 +561,20 @@ def error_screen(details):
 
 
 class CodeCalculatorApp(App):
-    title = "Code Calculator"
+    title = "Welcome..OutLaw"
 
     def build(self):
         try:
-            return CalculatorScreen()
+            root = FloatLayout()
+            try:
+                root.add_widget(ElectricThreads())  # behind everything else
+            except Exception:
+                pass  # decoration only; the calculator still works without it
+            root.add_widget(CalculatorScreen())
+            return root
         except Exception:
             return error_screen(traceback.format_exc())
 
 
 if __name__ == "__main__":
     CodeCalculatorApp().run()
-            
