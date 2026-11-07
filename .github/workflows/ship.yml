@@ -76,58 +76,56 @@ jobs:
           fi
 
   build-apk:
-    needs: detect
-    if: needs.detect.outputs.has_python == 'true' && contains(github.event.inputs.targets || 'apk,pip,pages', 'apk')
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  needs: detect
+  if: needs.detect.outputs.has_python == 'true' && contains(github.event.inputs.targets || 'apk,pip,pages', 'apk')
+  runs-on: ubuntu-latest
+  timeout-minutes: 180
+  container:
+    image: kivy/buildozer:latest
+    options: --user root
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: Ensure buildozer.spec exists
-        run: |
-          if [ ! -f buildozer.spec ]; then
-            echo "ERROR: buildozer.spec missing. Re-run shipit locally so it generates one."
-            exit 1
-          fi
-          echo "=== buildozer.spec (head) ==="
-          head -40 buildozer.spec
-          ls -la *.py 2>/dev/null | head -20 || true
+    - name: Ensure buildozer.spec exists
+      run: |
+        if [ ! -f buildozer.spec ]; then
+          echo "ERROR: buildozer.spec missing. Re-run shipit locally so it generates one."
+          exit 1
+        fi
+        echo "=== buildozer.spec (head) ==="
+        head -40 buildozer.spec
+        ls -la *.py 2>/dev/null | head -20 || true
 
-      - name: Build APK with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
-        with:
-          command: buildozer -v android debug
-          workdir: .
-          buildozer_version: stable
+    - name: Build APK with Buildozer
+      run: buildozer -v android debug
 
-      - name: Show APK outputs
-        if: always()
-        run: |
-          echo "=== bin/ ==="
-          ls -la bin/ 2>/dev/null || echo "(no bin yet)"
-          find . -name "*.apk" 2>/dev/null || true
+    - name: Show APK outputs
+      if: always()
+      run: |
+        echo "=== bin/ ==="
+        ls -la bin/ 2>/dev/null || echo "(no bin yet)"
+        find . -name "*.apk" 2>/dev/null || true
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: apk
-          path: |
-            bin/*.apk
-          if-no-files-found: warn
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: apk
+        path: |
+          bin/*.apk
+        if-no-files-found: warn
 
-      - name: Create GitHub Release with APK
-        if: success()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: shipit-${{ github.run_number }}
-          name: Shipit Build #${{ github.run_number }}
-          files: bin/*.apk
-          generate_release_notes: true
-          fail_on_unmatched_files: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create GitHub Release with APK
+      if: success()
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: shipit-${{ github.run_number }}
+        name: Shipit Build #${{ github.run_number }}
+        files: bin/*.apk
+        generate_release_notes: true
+        fail_on_unmatched_files: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   deploy-pages:
     needs: detect
