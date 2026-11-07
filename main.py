@@ -117,6 +117,45 @@ def open_url(url):
         return False
 
 
+def set_immersive(*_):
+    """Draw edge to edge: under the status bar, nav bar and camera cutout."""
+    try:
+        from android.runnables import run_on_ui_thread
+        from jnius import autoclass
+
+        @run_on_ui_thread
+        def _apply():
+            try:
+                VERSION = autoclass("android.os.Build$VERSION")
+                activity = autoclass("org.kivy.android.PythonActivity").mActivity
+                window = activity.getWindow()
+
+                # Draw into the notch / camera cutout area
+                params = window.getAttributes()
+                params.layoutInDisplayCutoutMode = (
+                    3 if VERSION.SDK_INT >= 30 else 1
+                )
+                window.setAttributes(params)
+
+                # Let the window extend beyond the screen limits, transparent bars
+                window.addFlags(0x00000200)  # FLAG_LAYOUT_NO_LIMITS
+                window.setStatusBarColor(0)
+                window.setNavigationBarColor(0)
+
+                window.getDecorView().setSystemUiVisibility(
+                    0x00000100 | 0x00000200 | 0x00000400  # layout under bars
+                    | 0x00000002 | 0x00000004             # hide nav + status
+                    | 0x00001000                          # sticky immersive
+                )
+            except Exception:
+                print("IMMERSIVE ERROR:", traceback.format_exc())
+
+        _apply()
+    except Exception:
+        # Not running on Android (or android module missing): nothing to do.
+        print("IMMERSIVE ERROR:", traceback.format_exc())
+
+
 # ---- Small building blocks ----------------------------------------------
 def spacer(height):
     return Widget(size_hint_y=None, height=dp(height))
@@ -401,7 +440,7 @@ class CalculatorScreen(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(
             orientation="vertical",
-            padding=[dp(20), dp(24), dp(20), dp(16)],
+            padding=[dp(20), dp(44), dp(20), dp(16)],
             spacing=0,
             **kwargs
         )
@@ -535,46 +574,4 @@ class CalculatorScreen(BoxLayout):
         Clock.schedule_once(self._reset_copy_text, 1.5)
 
     def _reset_copy_text(self, *_):
-        self.copy_button.text = "Copy code"
-
-    def open_instagram(self, *_):
-        if not open_url(INSTAGRAM_URL):
-            self.status_label.text = "Could not open Instagram."
-
-
-def error_screen(details):
-    """Shown instead of closing the app if the screen fails to build."""
-    message = Label(
-        text="The screen failed to start. Send a screenshot of this "
-             "to Claude:\n\n" + details,
-        font_size=sp(12),
-        color=TEXT,
-        halign="left",
-        valign="top",
-        size_hint_y=None,
-    )
-    message.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
-    message.bind(texture_size=lambda inst, ts: setattr(inst, "height", ts[1]))
-    scroll = ScrollView()
-    scroll.add_widget(message)
-    return scroll
-
-
-class CodeCalculatorApp(App):
-    title = "Welcome..OutLaw"
-
-    def build(self):
-        try:
-            root = FloatLayout()
-            try:
-                root.add_widget(ElectricThreads())  # behind everything else
-            except Exception:
-                pass  # decoration only; the calculator still works without it
-            root.add_widget(CalculatorScreen())
-            return root
-        except Exception:
-            return error_screen(traceback.format_exc())
-
-
-if __name__ == "__main__":
-    CodeCalculatorApp().run()
+        self.copy_button.tex
