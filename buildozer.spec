@@ -44,7 +44,7 @@ android.api = 33
 android.minapi = 24
 android.ndk = 25b
 android.accept_sdk_license = True
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = armeabi-v7a
 android.logcat_filters = *:S python:D
 
 # Detected entry: main.py
