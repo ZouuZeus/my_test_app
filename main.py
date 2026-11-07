@@ -417,7 +417,7 @@ class CalculatorScreen(BoxLayout):
         badge_row.add_widget(Widget())
         self.add_widget(badge_row)
         self.add_widget(spacer(16))
-        self.add_widget(text_label("Code Calculator", size=27, bold=True))
+        self.add_widget(text_label("Shazam mf!!", size=27, bold=True))
         self.add_widget(spacer(6))
         self.add_widget(
             text_label("Enter the device details to generate a code.",
