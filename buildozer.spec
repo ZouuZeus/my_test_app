@@ -4,10 +4,10 @@
 [app]
 
 # (str) Title of your application
-title = Mytestapp
+title = XPWDX
 
 # (str) Package name
-package.name = mytestapp
+package.name = hamzeus.xeroxpwd
 
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.shipit
