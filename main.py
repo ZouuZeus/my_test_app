@@ -4,6 +4,8 @@ The calculation itself lives in codegen.py (your original script, renamed
 from main.py). This file only adds the phone screen around it and does not
 change any of the maths.
 """
+import traceback
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
@@ -13,6 +15,7 @@ from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
@@ -263,7 +266,7 @@ class CalculatorScreen(BoxLayout):
         # Calculate
         self.calc_button = RoundedButton(
             fill=ACCENT, pressed_fill=ACCENT_PRESSED, radius=16,
-            text="Calculate", font_size=sp(17), color=TEXT,
+            text="Calculate", font_size=sp(17),
             size_hint_y=None, height=dp(56),
         )
         self.calc_button.bind(on_release=self.calculate)
@@ -341,13 +344,34 @@ class CalculatorScreen(BoxLayout):
         self.copy_button.text = "Copy code"
 
 
+def error_screen(details):
+    """Shown instead of closing the app if the screen fails to build."""
+    message = Label(
+        text="The screen failed to start. Send a screenshot of this "
+             "to Claude:\n\n" + details,
+        font_size=sp(12),
+        color=TEXT,
+        halign="left",
+        valign="top",
+        size_hint_y=None,
+    )
+    message.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+    message.bind(texture_size=lambda inst, ts: setattr(inst, "height", ts[1]))
+    scroll = ScrollView()
+    scroll.add_widget(message)
+    return scroll
+
+
 class CodeCalculatorApp(App):
     title = "Code Calculator"
 
     def build(self):
-        return CalculatorScreen()
+        try:
+            return CalculatorScreen()
+        except Exception:
+            return error_screen(traceback.format_exc())
 
 
 if __name__ == "__main__":
     CodeCalculatorApp().run()
-        
+            
