@@ -34,7 +34,7 @@ requirements = python3==3.10.12,hostpython3==3.10.12,kivy
 orientation = portrait
 
 # (bool) Indicate if the application should be fullscreen or not
-fullscreen = 0
+fullscreen = 1
 
 #------------------------------------------------------------------------------
 # Android specific
